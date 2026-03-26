@@ -1,55 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, deleteDoc, orderBy } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { useAuthState } from 'react-firebase-hooks/auth';
+import { api } from '../api';
 import { MaintenanceTask, TaskStatus } from '../types';
 import { 
   CheckCircle2, 
   Clock, 
   AlertCircle, 
   Trash2, 
-  ChevronRight, 
   Calendar as CalendarIcon,
-  Filter,
   Search,
-  MoreVertical,
   Wrench,
   Zap,
   Droplets,
   Brush,
   ShieldCheck,
-  Settings
+  Settings,
+  Timer,
+  MapPin,
+  Phone
 } from 'lucide-react';
 import { format, addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 
 export const TaskList: React.FC = () => {
-  const [user] = useAuthState(auth);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TaskStatus | 'all'>('all');
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    if (!user) return;
-
-    const q = query(
-      collection(db, 'tasks'),
-      where('uid', '==', user.uid),
-      orderBy('nextDue', 'asc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaintenanceTask)));
+  const fetchTasks = async () => {
+    try {
+      const data = await api.tasks.list();
+      setTasks(data);
+    } catch (error) {
+      console.error("Error fetching tasks:", error);
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
-  }, [user]);
+  useEffect(() => {
+    fetchTasks();
+  }, []);
 
   const handleComplete = async (task: MaintenanceTask) => {
-    if (!task.id || !user) return;
+    if (!task.id) return;
 
     const now = new Date();
     let nextDue = new Date(task.nextDue);
@@ -61,38 +57,51 @@ export const TaskList: React.FC = () => {
       case 'monthly': nextDue = addMonths(now, 1); break;
       case 'yearly': nextDue = addYears(now, 1); break;
       case 'one-time': 
-        await updateDoc(doc(db, 'tasks', task.id), { status: 'completed' });
+        await api.tasks.update(task.id, { status: 'completed' });
         break;
     }
 
-    if (task.frequency !== 'one-time') {
-      await updateDoc(doc(db, 'tasks', task.id), {
-        lastDone: now.toISOString(),
-        nextDue: nextDue.toISOString(),
-        status: 'pending'
-      });
-    }
+    try {
+      if (task.frequency !== 'one-time') {
+        await api.tasks.update(task.id, {
+          lastDone: now.toISOString(),
+          nextDue: nextDue.toISOString(),
+          status: 'pending'
+        });
+      }
 
-    // Add to history
-    await addDoc(collection(db, 'history'), {
-      uid: user.uid,
-      taskId: task.id,
-      taskTitle: task.title,
-      completedAt: now.toISOString(),
-      notes: `Completed as scheduled (${task.frequency})`
-    });
+      // Add to history
+      await api.history.create({
+        taskId: task.id,
+        taskTitle: task.title,
+        completedAt: now.toISOString(),
+        notes: `Completed as scheduled (${task.frequency})`
+      });
+      
+      toast.success(`"${task.title}" marked as completed!`);
+      fetchTasks();
+    } catch (error: any) {
+      toast.error(error.message);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this task?')) {
-      await deleteDoc(doc(db, 'tasks', id));
+      try {
+        await api.tasks.delete(id);
+        toast.success('Task deleted');
+        fetchTasks();
+      } catch (error: any) {
+        toast.error(error.message);
+      }
     }
   };
 
   const filteredTasks = tasks.filter(t => {
     const matchesFilter = filter === 'all' || t.status === filter;
     const matchesSearch = t.title.toLowerCase().includes(search.toLowerCase()) || 
-                         t.category.toLowerCase().includes(search.toLowerCase());
+                         t.category.toLowerCase().includes(search.toLowerCase()) ||
+                         (t.address?.toLowerCase() || '').includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
@@ -159,6 +168,24 @@ export const TaskList: React.FC = () => {
                   <div>
                     <h3 className="font-bold text-zinc-900 text-lg">{task.title}</h3>
                     <p className="text-sm text-zinc-500 mt-0.5">{task.description || 'No description provided.'}</p>
+                    
+                    {(task.address || task.contactDetails) && (
+                      <div className="flex flex-wrap gap-4 mt-2">
+                        {task.address && (
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            <MapPin className="w-3.5 h-3.5 text-zinc-400" />
+                            {task.address}
+                          </div>
+                        )}
+                        {task.contactDetails && (
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            <Phone className="w-3.5 h-3.5 text-zinc-400" />
+                            {task.contactDetails}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center gap-3 mt-3">
                       <span className={cn(
                         "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5",
@@ -179,6 +206,12 @@ export const TaskList: React.FC = () => {
                         <Clock className="w-3.5 h-3.5" />
                         {task.frequency}
                       </span>
+                      {task.expiryTime && (
+                        <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                          <Timer className="w-3.5 h-3.5" />
+                          Expires: {task.expiryTime}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

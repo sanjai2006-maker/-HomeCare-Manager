@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { useAuthState } from 'react-firebase-hooks/auth';
+import { api } from '../api';
 import { MaintenanceHistory } from '../types';
 import { 
   History as HistoryIcon, 
@@ -10,39 +8,36 @@ import {
   DollarSign, 
   FileText,
   Search,
-  Filter,
-  ArrowLeft
+  ArrowLeft,
+  User as UserIcon
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [user] = useAuthState(auth);
   const [history, setHistory] = useState<MaintenanceHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    if (!user) return;
+    const fetchHistory = async () => {
+      try {
+        const data = await api.history.list();
+        setHistory(data);
+      } catch (error) {
+        console.error("Error fetching history:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const q = query(
-      collection(db, 'history'),
-      where('uid', '==', user.uid),
-      orderBy('completedAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaintenanceHistory)));
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+    fetchHistory();
+  }, []);
 
   const filteredHistory = history.filter(h => 
     h.taskTitle.toLowerCase().includes(search.toLowerCase()) || 
-    h.notes?.toLowerCase().includes(search.toLowerCase())
+    h.notes?.toLowerCase().includes(search.toLowerCase()) ||
+    (h.completedBy?.toLowerCase() || '').includes(search.toLowerCase())
   );
 
   if (loading) return <div className="p-8 text-center text-zinc-500">Loading history...</div>;
@@ -66,7 +61,7 @@ export const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input
             type="text"
-            placeholder="Search history..."
+            placeholder="Search history or staff..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-900 transition-all"
@@ -90,11 +85,17 @@ export const History: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
                 <div className="space-y-1">
                   <h3 className="font-bold text-zinc-900 text-lg">{item.taskTitle}</h3>
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-4">
                     <span className="text-xs font-medium text-zinc-500 flex items-center gap-1.5">
                       <CalendarIcon className="w-3.5 h-3.5" />
                       Completed {format(new Date(item.completedAt), 'MMM d, yyyy')}
                     </span>
+                    {item.completedBy && (
+                      <span className="text-xs font-bold text-zinc-900 bg-zinc-100 px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                        <UserIcon className="w-3.5 h-3.5 text-zinc-400" />
+                        By: {item.completedBy}
+                      </span>
+                    )}
                     {item.cost && (
                       <span className="text-xs font-medium text-zinc-500 flex items-center gap-1.5">
                         <DollarSign className="w-3.5 h-3.5" />

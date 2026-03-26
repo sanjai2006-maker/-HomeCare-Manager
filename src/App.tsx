@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from './firebase';
+import { api } from './api';
+import { UserProfile } from './types';
 import { Auth } from './components/Auth';
 import { Dashboard } from './components/Dashboard';
 import { TaskForm } from './components/TaskForm';
 import { TaskList } from './components/TaskList';
 import { History } from './components/History';
+import { WorkerDashboard } from './components/WorkerDashboard';
+import { Toaster, toast } from 'sonner';
 import { 
-  Home, 
   LayoutDashboard, 
   ListTodo, 
   History as HistoryIcon, 
@@ -16,10 +17,14 @@ import {
   ShieldCheck,
   Zap,
   Droplets,
-  Brush,
   Menu,
   X,
-  Bell
+  Bell,
+  LogOut,
+  Loader2,
+  HardHat,
+  User as UserIcon,
+  Home
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -27,10 +32,30 @@ import { motion, AnimatePresence } from 'motion/react';
 type View = 'dashboard' | 'tasks' | 'history';
 
 export default function App() {
-  const [user, loading] = useAuthState(auth);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'admin' | 'worker' | null>(null);
+
+  useEffect(() => {
+    api.auth.me()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await api.auth.logout();
+      setUser(null);
+      setAuthMode(null);
+      toast.success('Logged out successfully');
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -42,7 +67,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-zinc-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+          <Loader2 className="w-12 h-12 text-zinc-900 animate-spin" />
           <p className="text-zinc-500 font-medium animate-pulse">Initializing System...</p>
         </div>
       </div>
@@ -52,33 +77,132 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md space-y-8 text-center">
-          <div className="inline-flex p-4 bg-white rounded-3xl shadow-xl border border-zinc-100 mb-4">
-            <Wrench className="w-12 h-12 text-zinc-900" />
+        <div className="w-full max-w-4xl space-y-12">
+          <div className="text-center space-y-4">
+            <div className="inline-flex p-4 bg-white rounded-3xl shadow-xl border border-zinc-100 mb-2">
+              <Wrench className="w-12 h-12 text-zinc-900" />
+            </div>
+            <h1 className="text-5xl font-black text-zinc-900 tracking-tight">HomeKeep</h1>
+            <p className="text-zinc-500 text-xl max-w-md mx-auto">Smart maintenance management for modern homes and professional staff.</p>
           </div>
-          <div className="space-y-2">
-            <h1 className="text-4xl font-black text-zinc-900 tracking-tight">HomeKeep</h1>
-            <p className="text-zinc-500 text-lg">Smart maintenance management for modern homeowners.</p>
-          </div>
-          <div className="p-8 bg-white rounded-3xl shadow-xl border border-zinc-100 space-y-6">
-            <div className="grid grid-cols-3 gap-4 pb-4 border-b border-zinc-100">
-              <div className="flex flex-col items-center gap-2">
-                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Zap className="w-5 h-5" /></div>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase">Electrical</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Droplets className="w-5 h-5" /></div>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase">Plumbing</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><ShieldCheck className="w-5 h-5" /></div>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase">Safety</span>
+
+          {!authMode ? (
+            <div className="grid md:grid-cols-2 gap-8">
+              <motion.button
+                whileHover={{ y: -5 }}
+                onClick={() => setAuthMode('admin')}
+                className="p-10 bg-white rounded-[40px] shadow-xl border border-zinc-100 text-left space-y-6 group transition-all hover:border-zinc-900 hover:ring-4 hover:ring-zinc-900/5"
+              >
+                <div className="w-16 h-16 bg-zinc-900 text-white rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                  <Home className="w-8 h-8" />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-zinc-900">Homeowner Portal</h2>
+                  <p className="text-zinc-500 mt-2 font-medium">Manage your home, schedule tasks, and track maintenance history.</p>
+                </div>
+                <div className="pt-4 flex items-center gap-2 text-zinc-900 font-bold">
+                  Get Started <Plus className="w-4 h-4" />
+                </div>
+              </motion.button>
+
+              <motion.button
+                whileHover={{ y: -5 }}
+                onClick={() => setAuthMode('worker')}
+                className="p-10 bg-white rounded-[40px] shadow-xl border border-zinc-100 text-left space-y-6 group transition-all hover:border-zinc-900 hover:ring-4 hover:ring-zinc-900/5"
+              >
+                <div className="w-16 h-16 bg-zinc-100 text-zinc-900 rounded-2xl flex items-center justify-center shadow-sm group-hover:bg-zinc-900 group-hover:text-white transition-all">
+                  <HardHat className="w-8 h-8" />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black text-zinc-900">Worker Portal</h2>
+                  <p className="text-zinc-500 mt-2 font-medium">Access assigned tasks, mark completions, and view job details.</p>
+                </div>
+                <div className="pt-4 flex items-center gap-2 text-zinc-900 font-bold">
+                  Staff Login <Plus className="w-4 h-4" />
+                </div>
+              </motion.button>
+            </div>
+          ) : (
+            <div className="max-w-md mx-auto">
+              <button 
+                onClick={() => setAuthMode(null)}
+                className="mb-6 flex items-center gap-2 text-zinc-400 hover:text-zinc-900 font-bold transition-colors"
+              >
+                <X className="w-4 h-4" /> Back to selection
+              </button>
+              <div className="p-8 bg-white rounded-[40px] shadow-2xl border border-zinc-100 space-y-6">
+                <div className="text-center space-y-1">
+                  <h2 className="text-2xl font-black text-zinc-900">
+                    {authMode === 'admin' ? 'Homeowner Access' : 'Worker Access'}
+                  </h2>
+                  <p className="text-zinc-500 text-sm font-medium">Please sign in to your account</p>
+                </div>
+                <Auth onUserChange={setUser} forcedRole={authMode} />
               </div>
             </div>
-            <Auth />
-            <p className="text-xs text-zinc-400">Secure access via Google Authentication</p>
+          )}
+
+          <div className="flex justify-center gap-8 text-zinc-400">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Efficiency</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Droplets className="w-4 h-4" />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Reliability</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              <span className="text-[10px] font-bold uppercase tracking-widest">Security</span>
+            </div>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Worker View
+  if (user.role === 'worker') {
+    return (
+      <div className="min-h-screen bg-zinc-50">
+        <nav className="bg-white border-b border-zinc-200 sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between h-20">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-zinc-900 rounded-xl">
+                  <HardHat className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-black text-zinc-900 tracking-tight">HomeKeep</h1>
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">Worker Portal</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-zinc-50 rounded-xl border border-zinc-100">
+                  <div className="w-8 h-8 rounded-full bg-zinc-200 flex items-center justify-center">
+                    <UserIcon className="w-4 h-4 text-zinc-500" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-bold text-zinc-900">{user.displayName || user.email}</p>
+                    <p className="text-[10px] text-zinc-400 font-medium">Staff Member</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleLogout}
+                  className="p-2.5 text-zinc-400 hover:text-red-600 transition-colors rounded-xl hover:bg-red-50"
+                  title="Logout"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <WorkerDashboard />
+        </main>
+        <Toaster position="top-right" expand={false} richColors />
       </div>
     );
   }
@@ -134,7 +258,18 @@ export default function App() {
           </nav>
 
           <div className="mt-auto pt-6 border-t border-zinc-100">
-            <Auth />
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-zinc-900 truncate">{user.displayName}</p>
+                <p className="text-xs text-zinc-500 truncate">{user.email}</p>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-2 text-zinc-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -205,7 +340,7 @@ export default function App() {
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
+      <Toaster position="top-right" expand={false} richColors />
     </div>
   );
 }
-

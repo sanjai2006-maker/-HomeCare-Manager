@@ -7,6 +7,7 @@ export interface UserProfile {
   email: string;
   displayName?: string;
   photoURL?: string;
+  role: 'admin' | 'worker';
   createdAt: string;
 }
 
@@ -19,6 +20,9 @@ export interface MaintenanceTask {
   frequency: TaskFrequency;
   lastDone?: string;
   nextDue: string;
+  expiryTime?: string;
+  address?: string;
+  contactDetails?: string;
   status: TaskStatus;
   createdAt: string;
 }
@@ -31,4 +35,5 @@ export interface MaintenanceHistory {
   completedAt: string;
   notes?: string;
   cost?: number;
+  completedBy?: string;
 }

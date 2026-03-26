@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { useAuthState } from 'react-firebase-hooks/auth';
+import { api } from '../api';
 import { MaintenanceTask, MaintenanceHistory } from '../types';
 import { 
   AlertCircle, 
@@ -18,48 +16,37 @@ import {
   Zap,
   Brush,
   ShieldCheck,
-  MoreHorizontal
+  Timer,
+  MapPin,
+  Phone
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { format, isAfter, isBefore, addDays, startOfToday } from 'date-fns';
-import { motion, AnimatePresence } from 'motion/react';
+import { format, isBefore, addDays, startOfToday } from 'date-fns';
+import { motion } from 'motion/react';
 
 export const Dashboard: React.FC<{ onAddTask: () => void; onShowHistory: () => void }> = ({ onAddTask, onShowHistory }) => {
-  const [user] = useAuthState(auth);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [recentHistory, setRecentHistory] = useState<MaintenanceHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-
-    const tasksQuery = query(
-      collection(db, 'tasks'),
-      where('uid', '==', user.uid),
-      orderBy('nextDue', 'asc')
-    );
-
-    const historyQuery = query(
-      collection(db, 'history'),
-      where('uid', '==', user.uid),
-      orderBy('completedAt', 'desc'),
-      limit(5)
-    );
-
-    const unsubscribeTasks = onSnapshot(tasksQuery, (snapshot) => {
-      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaintenanceTask)));
-      setLoading(false);
-    });
-
-    const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
-      setRecentHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaintenanceHistory)));
-    });
-
-    return () => {
-      unsubscribeTasks();
-      unsubscribeHistory();
+    const fetchData = async () => {
+      try {
+        const [tasksData, historyData] = await Promise.all([
+          api.tasks.list(),
+          api.history.list()
+        ]);
+        setTasks(tasksData);
+        setRecentHistory(historyData.slice(0, 5));
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setLoading(false);
+      }
     };
-  }, [user]);
+
+    fetchData();
+  }, []);
 
   const urgentTasks = tasks.filter(t => t.status === 'urgent' || isBefore(new Date(t.nextDue), addDays(startOfToday(), 3)));
   const pendingTasks = tasks.filter(t => t.status === 'pending' && !urgentTasks.includes(t));
@@ -71,17 +58,6 @@ export const Dashboard: React.FC<{ onAddTask: () => void; onShowHistory: () => v
     { label: 'Completed', value: completedTasks.length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: 'Total', value: tasks.length, icon: LayoutDashboard, color: 'text-blue-600', bg: 'bg-blue-50' },
   ];
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'structural': return <Wrench className="w-4 h-4" />;
-      case 'electrical': return <Zap className="w-4 h-4" />;
-      case 'plumbing': return <Droplets className="w-4 h-4" />;
-      case 'cleaning': return <Brush className="w-4 h-4" />;
-      case 'safety': return <ShieldCheck className="w-4 h-4" />;
-      default: return <Settings className="w-4 h-4" />;
-    }
-  };
 
   if (loading) return <div className="p-8 text-center text-zinc-500">Loading your dashboard...</div>;
 
@@ -153,6 +129,27 @@ export const Dashboard: React.FC<{ onAddTask: () => void; onShowHistory: () => v
 
         {/* Sidebar: Recent History & Tips */}
         <div className="space-y-8">
+          <div className="p-5 bg-white border border-zinc-200 rounded-2xl">
+            <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-500" />
+              How Scheduling Works
+            </h3>
+            <ul className="space-y-2 text-xs text-zinc-500">
+              <li className="flex gap-2">
+                <span className="font-bold text-zinc-900">1.</span>
+                Tasks are scheduled based on your chosen frequency (Daily, Weekly, etc).
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-zinc-900">2.</span>
+                When you mark a task as "Done", the system automatically calculates the next due date.
+              </li>
+              <li className="flex gap-2">
+                <span className="font-bold text-zinc-900">3.</span>
+                The backend scheduler runs daily to flag tasks due within 3 days as "Urgent".
+              </li>
+            </ul>
+          </div>
+
           <div className="p-6 bg-zinc-900 text-white rounded-3xl shadow-xl relative overflow-hidden">
             <div className="relative z-10">
               <h3 className="text-lg font-bold mb-2">Maintenance Tip</h3>
@@ -166,27 +163,6 @@ export const Dashboard: React.FC<{ onAddTask: () => void; onShowHistory: () => v
           </div>
 
           <div className="space-y-4">
-            <div className="p-5 bg-white border border-zinc-200 rounded-2xl">
-              <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-500" />
-                How Scheduling Works
-              </h3>
-              <ul className="space-y-2 text-xs text-zinc-500">
-                <li className="flex gap-2">
-                  <span className="font-bold text-zinc-900">1.</span>
-                  Tasks are scheduled based on your chosen frequency (Daily, Weekly, etc).
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold text-zinc-900">2.</span>
-                  When you mark a task as "Done", the system automatically calculates the next due date.
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold text-zinc-900">3.</span>
-                  The backend scheduler runs daily to flag tasks due within 3 days as "Urgent".
-                </li>
-              </ul>
-            </div>
-
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider flex items-center gap-2">
                 <HistoryIcon className="w-4 h-4 text-zinc-400" />
@@ -251,7 +227,29 @@ const TaskCard: React.FC<{ task: MaintenanceTask; isUrgent?: boolean }> = ({ tas
               <Clock className="w-3 h-3" />
               {task.frequency}
             </span>
+            {task.expiryTime && (
+              <span className="text-xs font-medium text-amber-600 flex items-center gap-1">
+                <Timer className="w-3 h-3" />
+                {task.expiryTime}
+              </span>
+            )}
           </div>
+          {(task.address || task.contactDetails) && (
+            <div className="flex items-center gap-3 mt-1.5 opacity-60">
+              {task.address && (
+                <span className="text-[10px] font-medium text-zinc-500 flex items-center gap-1">
+                  <MapPin className="w-2.5 h-2.5" />
+                  {task.address}
+                </span>
+              )}
+              {task.contactDetails && (
+                <span className="text-[10px] font-medium text-zinc-500 flex items-center gap-1">
+                  <Phone className="w-2.5 h-2.5" />
+                  {task.contactDetails}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <button className="p-2 text-zinc-300 hover:text-zinc-900 transition-colors">
